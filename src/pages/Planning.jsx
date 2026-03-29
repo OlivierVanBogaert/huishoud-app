@@ -1,3 +1,4 @@
+// Planning pagina - standaard weekplanning + tijdinvoer
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -107,41 +108,53 @@ function StandaardBeheer({ visibleHuisIds, user, onClose }) {
       })
       if (error) throw error
       setAdding(null)
-      setForm({ blok:Color: 'white',
-                  borderRadius: 12,
-                  padding: 12,
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
-                }}
-              >
-                <h3 style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', margin: '0 0 8px' }}>
-                  {dag}
-                </h3>
+      setForm({ blok: '', van_tijd: '08:00', tot_tijd: '12:00', huis_id: '' })
+      await loadStandaard()
+    } catch (e) {
+      console.error('Error adding standaard blok:', e)
+    }
+  }
 
-                {dagBlokken.map(blok => (
-                  <div
-                    key={blok.id}
-                    style={{
-                      padding: 10,
-                      marginBottom: 6,
-                      backgroundColor: '#f0f7ff',
-                      borderRadius: 6,
-                      borderLeft: '3px solid #3b82f6'
-                    }}
-                  >
-                    <div style={{ fontWeight: 500, fontSize: 12, color: '#1e293b' }}>{blok.blok}</div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                      {blok.van_tijd?.slice(0, 5)} - {blok.tot_tijd?.slice(0, 5)}
-                    </div>
-                    {visibleHuisIds.length > 1 && (
-                      <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>
-                        {HUIS_NAMEN[blok.huis_id]}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => handleDelete(blok.id)}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        fontSize: 11, color: '#ef4444', Color: 'white',
+  const handleDelete = async (id) => {
+    try {
+      const { error } = await supabase.from('standaard_blokken').delete().eq('id', id)
+      if (error) throw error
+      await loadStandaard()
+    } catch (e) {
+      console.error('Error deleting standaard blok:', e)
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <h1 style={{ fontSize: isMobile ? 16 : 20, fontWeight: 600, color: '#1e293b', margin: 0 }}>
+            Standaard weekplanning
+          </h1>
+          <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>
+            Deze planning wordt automatisch elke week ingevuld
+          </p>
+        </div>
+        <button onClick={onClose} style={btnSecondary}>← Terug</button>
+      </div>
+
+      {loading ? (
+        <p style={{ color: '#94a3b8', fontSize: 13 }}>Laden...</p>
+      ) : (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(5, 1fr)',
+          gap: 12
+        }}>
+          {DAGEN.map((dag, weekdag) => {
+            const dagBlokken = standaardBlokken.filter(b => b.weekdag === weekdag)
+
+            return (
+              <div
+                key={weekdag}
+                style={{
+                  backgroundColor: 'white',
                   borderRadius: 12,
                   padding: 12,
                   boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
