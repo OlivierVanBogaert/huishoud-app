@@ -44,9 +44,9 @@ CREATE TABLE reacties (
 CREATE TABLE blokken (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   dag DATE NOT NULL,
-  blok TEXT NOT NULL CHECK (blok IN ('Ochtend', 'Namiddag', 'Hele dag')),
+  blok TEXT NOT NULL,
   huis_id UUID NOT NULL REFERENCES huishoudens(id) ON DELETE CASCADE,
-  tijdslot TEXT,
+  tijdslot TEXT NOT NULL CHECK (tijdslot IN ('Ochtend', 'Namiddag', 'Hele dag')),
   gebruiker_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -107,12 +107,12 @@ ALTER TABLE meldingen ENABLE ROW LEVEL SECURITY;
 -- RLS Policies for huishoudens
 CREATE POLICY "Gebruikers kunnen hun huishoudens zien"
   ON huishoudens FOR SELECT
-  USING (a ID::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid())));
+  USING (id::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid())));
 
 -- RLS Policies for gebruikers
-CREATE POLICY "Gebruikers kunnen zijn eigen profiel zien"
+CREATE POLICY "Gebruikers kunnen hun eigen profiel zien"
   ON gebruikers FOR SELECT
-  USINE (id = auth.uid());
+  USING (id = auth.uid());
 
 -- RLS Policies for taken
 CREATE POLICY "Gebruikers kunnen taken van hun huishoudens zien"
@@ -121,20 +121,20 @@ CREATE POLICY "Gebruikers kunnen taken van hun huishoudens zien"
     huis_id::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid()))
   );
 
-CREATE POLICY "Gebruikers kunnen taken toevoegen"
+CREATE POLICY "Gebruikers kunnen taken toevoegen aan hun huishoudens"
   ON taken FOR INSERT
   WITH CHECK (
     huis_id::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid()))
   );
 
-CREATE POLICY "Gebruikers kunnen taken updaten"
+CREATE POLICY "Gebruikers kunnen taken van hun huishoudens updaten"
   ON taken FOR UPDATE
   USING (
     huis_id::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid()))
   );
 
 -- RLS Policies for reacties
-CREATE POLICY "Gebruikers kunnen reacties zien"
+CREATE POLICY "Gebruikers kunnen reacties van hun huishoudens zien"
   ON reacties FOR SELECT
   USING (
     taak_id IN (SELECT id FROM taken WHERE huis_id::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid())))
@@ -147,59 +147,59 @@ CREATE POLICY "Gebruikers kunnen reacties toevoegen"
   );
 
 -- RLS Policies for blokken
-CREATE POLICY "Gebruikers kunnen blokken zien"
+CREATE POLICY "Gebruikers kunnen blokken van hun huishoudens zien"
   ON blokken FOR SELECT
   USING (
     huis_id::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid()))
   );
 
-CREATE POLICY "Gebruikers kunnen blokken toevoegen"
+CREATE POLICY "Gebruikers kunnen blokken toevoegen aan hun huishoudens"
   ON blokken FOR INSERT
   WITH CHECK (
     huis_id::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid()))
   );
 
 -- RLS Policies for boodschappen
-CREATE POLICY "Gebruikers kunnen boodschappen zien"
+CREATE POLICY "Gebruikers kunnen boodschappen van hun huishoudens zien"
   ON boodschappen FOR SELECT
   USING (
     huis_id::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid()))
   );
 
-CREATE POLICY "Gebruikers kunnen boodschappen toevoegen"
+CREATE POLICY "Gebruikers kunnen boodschappen toevoegen aan hun huishoudens"
   ON boodschappen FOR INSERT
   WITH CHECK (
     huis_id::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid()))
   );
 
-CREATE POLICY "Gebruikers kunnen boodschappen updaten"
+CREATE POLICY "Gebruikers kunnen boodschappen van hun huishoudens updaten"
   ON boodschappen FOR UPDATE
   USING (
     huis_id::text = ANY((SELECT huishouden_ids FROM gebruikers WHERE id = auth.uid()))
   );
 
 -- RLS Policies for uren
-CREATE POLICY "Gebruikers kunnen uren zien"
+CREATE POLICY "Gebruikers kunnen hun eigen uren zien"
   ON uren FOR SELECT
-  USINE (gebruiker_id = auth.uid());
+  USING (gebruiker_id = auth.uid());
 
 CREATE POLICY "Gebruikers kunnen uren toevoegen"
   ON uren FOR INSERT
   WITH CHECK (gebruiker_id = auth.uid());
 
-CREATE POLICY "Gebruikers kunnen uren updaten"
+CREATE POLICY "Gebruikers kunnen hun eigen uren updaten"
   ON uren FOR UPDATE
-  USINF (gebruiker_id = auth.uid());
+  USING (gebruiker_id = auth.uid());
 
 -- RLS Policies for meldingen
-CREATE POLICY "Gebruikers kunnen zijn eigen meldingen zien"
+CREATE POLICY "Gebruikers kunnen hun eigen meldingen zien"
   ON meldingen FOR SELECT
   USING (voor_gebruiker = auth.uid());
 
 -- Insert default households
 INSERT INTO huishoudens (naam) VALUES
-  ('üé† Olivier & Ashley'),
-  ('¬é° Jan');
+  ('üè† Olivier & Ashley'),
+  ('üè° Jan');
 
 -- These users will be created via Supabase Auth with the credentials specified
 -- And then their records should be inserted here with the appropriate huishouden_ids

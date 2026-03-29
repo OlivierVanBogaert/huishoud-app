@@ -2,296 +2,616 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useMobile } from '../hooks/useMobile'
+import ChipSelect from '../components/ChipSelect'
 
-const COLORS = {
-  primary: '#1e3a5f',
-  secondary: '#2d5f8a',
-  white: '#ffffff',
-  light: '#f5f5f5'
+const HUIS_IDS = {
+  "🏠 Olivier & Ashley": "ada24453-c203-4639-be69-0cdae55df9f4",
+  "🏡 Jan": "b678cfb5-66be-4a29-8200-7b417e9e7ff5"
 }
 
-const weekdagen = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo']
-const blokken = ['Ochtend', 'Namiddag', 'Hele dag']
+const HUIS_NAMEN = Object.fromEntries(Object.entries(HUIS_IDS).map(([k, v]) => [v, k]))
 
-// Helper function to get week dates
-function getWeekDatums(startDate = new Date()) {
-  const dates = []
-  const current = new Date(startDate)
-  const day = current.getDay()
-  const diff = current.getDate() - day + (day === 0 ? -6 : 1) // Adjust to Monday
+const HUISHOUDENS = ["🏠 Olivier & Ashley", "🏡 Jan"]
+const DAGEN = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag"]
+const TIJDSLOTEN = ["Ochtend", "Namiddag", "Hele dag"]
 
-  const monday = new Date(current.setDate(diff))
+function getWeekDatums() {
+  const vandaag = new Date()
+  const dagVanWeek = vandaag.getDay()
+  const maandag = new Date(vandaag)
+  maandag.setDate(vandaag.getDate() - (dagVanWeek === 0 ? 6 : dagVanWeek - 1))
 
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(monday)
-    date.setDate(monday.getDate() + i)
-    dates.push(new Date(date))
-  }
-
-  return dates
+  return DAGEN.map((dag, i) => {
+    const d = new Date(maandag)
+    d.setDate(maandag.getDate() + i)
+    return {
+      dag,
+      datum: `${d.getDate()}/${d.getMonth() + 1}`,
+      volledig: d.toISOString().slice(0, 10)
+    }
+  })
 }
 
 export default function Planning() {
   const { user } = useAuth()
   const isMobile = useMobile()
-  const [weekDates, setWeekDates] = useState([])
-  const [blokkeringen, setBlokkeringen] = useState([])
+  const [blokken, setBlokken] = useState([])
   const [loading, setLoading] = useState(true)
-  const [selectedBlok, setSelectedBlok] = useState(null)
-  const [showNewBlockForm, setShowNewBlockForm] = useState(false)
+  const [weekDatums, setWeekDatums] = useState([])
+  const [addingBlok, setAddingBlok] = useState({})
+  const [formData, setFormData] = useState({})
+  const [dayIndex, setDayIndex] = useState(0)
+
+  const magAllesZien = user?.permissions?.length > 1
+  const visibleHuisIds = user?.permissions?.map(perm => HUIS_IDS[perm]).filter(Boolean) || []
 
   useEffect(() => {
-    setWeekDates(getWeekDatums())
-    loadPlanning()
-  }, [user])
+    setWeekDatums(getWeekDatums())
+    if (user && visibleHuisIds.length > 0) {
+      loadBlokken()
+    }
+  }, [user, visibleHuisIds.length])
 
-  const loadPlanning = async () => {
+  const loadBlokken = async () => {
     try {
       setLoading(true)
-      // Mock data for now - will be replaced with real Supabase queries
-      setBlokkeringen([])
+      const weekData = getWeekDatums()
+      const weekStart = weekData[0].volledig
+      const weekEnd = weekData[weekData.length - 1].volledig
+
+      const { data, error } = await supabase
+        .from('blokken')
+        .select('*')
+        .gte('dag', weekStart)
+        .lte('dag', weekEnd)
+        .in('huis_id', visibleHuisIds)
+        .order('dag', { ascending: true })
+
+      if (error) throw error
+      setBlokken(data || [])
     } catch (error) {
-      console.error('Error loading planning:', error)
+      console.error('Error loading blokken:', error)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleAddBlock = async (date, blok) => {
+  const handleAddBlok = async (dagDatum, huisId) => {
+    const key = `${dagDatum}-${huisId}`
+    const blokNaam = formData[key]?.blok?.trim()
+
+    if (!blokNaam) return
+
     try {
-      // This will be implemented once Supabase schema is set up
-      await loadPlanning()
+      const { error } = await supabase
+        .from('blokken')
+        .insert({
+          dag: dagDatum,
+          blok: blokNaam,
+          huis_id: huisId,
+          tijdslot: formData[key]?.tijdslot || "Ochtend",
+          gebruiker_id: user.id
+        })
+
+      if (error) throw error
+
+      setFormData(prev => {
+        const updated = { ...prev }
+        delete updated[key]
+        return updated
+      })
+      setAddingBlok(prev => {
+        const updated = { ...prev }
+        delete updated[key]
+        return updated
+      })
+      await loadBlokken()
     } catch (error) {
-      console.error('Error adding block:', error)
+      console.error('Error adding blok:', error)
     }
   }
 
-  const PlanningGrid = () => {
-    if (isMobile) {
-      // Mobile: scrollable horizontal grid
-      return (
-        <div style={{ overflowX: 'auto', marginBottom: '2rem' }}>
-          <table style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            minWidth: '600px'
-          }}>
-            <thead>
-              <tr style={{ backgroundColor: COLORS.secondary }}>
-                <th style={{
-                  padding: '0.75rem',
-                  color: COLORS.white,
-                  fontWeight: '600',
-                  fontSize: '12px',
-                  textAlign: 'left',
-                  borderBottom: '2px solid ' + COLORS.primary
-                }}>
-                  Blok
-                </th>
-                {weekDates.map((date, idx) => (
-                  <th
-                    key={idx}
-                    style={{
-                      padding: '0.75rem',
-                      color: COLORS.white,
-                      fontWeight: '600',
-                      fontSize: '12px',
-                      textAlign: 'center',
-                      borderBottom: '2px solid ' + COLORS.primary
-                    }}
-                  >
-                    <div>{weekdagen[idx]}</div>
-                    <div style={{ fontSize: '11px', fontWeight: '400' }}>
-                      {date.getDate()}/{date.getMonth() + 1}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {blokken.map((bolk, blokIdx) => (
-                <tr key={blok} style={{
-                  backgroundColor: blokIdx % 2 === 0 ? COLORS.white : '#f9f9f9'
-                }}>
-                  <td style={{
-                    padding: '0.75rem',
-                    fontWeight: '600',
-                    fontSize: '12px',
-                    color: COLORS.primary,
-                    borderBottom: '1px solid #e0e0e0'
-                  }}>
-                    {blok}
-                  </td>
-                  {weekDates.map((date, dateIdx) => {
-                    const key = `${date.toISOString().split('T')[0]}-${blok}`
-                    const isAssigned = blokkeringen.some(b =>
-                      b.date === date.toISOString().split('T')[0] && b.blok === blok
-                    )
-                    return (
-                      <td
-                        key={dateIdx}
-                        onClick={() => !isAssigned && handleAddBlock(date, blok)}
-                        style={{
-                          padding: '0.75rem',
-                          textAlign: 'center',
-                          borderBottom: '1px solid #e0e0e0',
-                          cursor: 'pointer',
-                          backgroundColor: isAssigned ? '#d4edda' : 'transparent',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!isAssigned) e.target.style.backgroundColor = '#f0f0f0'
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isAssigned) e.target.style.backgroundColor = 'transparent'
-                        }}
-                      >
-                        {isAssigned ? '✓' : '-'}
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )
-    }
+  const handleDeleteBlok = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('blokken')
+        .delete()
+        .eq('id', id)
 
-    // Desktop: full grid layout
+      if (error) throw error
+      await loadBlokken()
+    } catch (error) {
+      console.error('Error deleting blok:', error)
+    }
+  }
+
+  if (loading) {
+    return <p style={{ textAlign: 'center', color: '#999' }}>Laden...</p>
+  }
+
+  if (!user || visibleHuisIds.length === 0) {
+    return <p style={{ textAlign: 'center', color: '#999' }}>Geen huishoudens toegankelijk</p>
+  }
+
+  if (isMobile) {
+    const currentDay = weekDatums[dayIndex]
+
     return (
-      <div style={{
-        backgroundColor: COLORS.white,
-        borderRadius: '8px',
-        overflow: 'hidden',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        marginBottom: '2rem'
-      }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ backgroundColor: COLORS.secondary }}>
-              <th style={{
-                padding: '1rem',
-                color: COLORS.white,
-                fontWeight: '600',
-                textAlign: 'left',
-                borderBottom: '2px solid ' + COLORS.primary
-              }}>
-                Blok
-              </th>
-              {weekDates.map((date, idx) => (
-                <th
-                  key={idx}
+      <div>
+        <h1 style={{ fontSize: 16, fontWeight: 600, color: "#1e293b", margin: 0 }}>Week planning</h1>
+        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
+          {weekDatums[0].datum} - {weekDatums[4].datum}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 8 }}>
+          <button
+            onClick={() => setDayIndex(Math.max(0, dayIndex - 1))}
+            disabled={dayIndex === 0}
+            style={{
+              padding: "6px 10px",
+              border: "1px solid #d1d5db",
+              background: "white",
+              borderRadius: 6,
+              cursor: dayIndex === 0 ? "default" : "pointer",
+              minHeight: 44,
+              minWidth: 44,
+              fontWeight: 600,
+              opacity: dayIndex === 0 ? 0.5 : 1
+            }}
+          >
+            ←
+          </button>
+          <div style={{ flex: 1, textAlign: "center" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#1e293b", margin: 0 }}>
+              {currentDay.dag}
+            </h2>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>{currentDay.datum}</span>
+          </div>
+          <button
+            onClick={() => setDayIndex(Math.min(4, dayIndex + 1))}
+            disabled={dayIndex === 4}
+            style={{
+              padding: "6px 10px",
+              border: "1px solid #d1d5db",
+              background: "white",
+              borderRadius: 6,
+              cursor: dayIndex === 4 ? "default" : "pointer",
+              minHeight: 44,
+              minWidth: 44,
+              fontWeight: 600,
+              opacity: dayIndex === 4 ? 0.5 : 1
+            }}
+          >
+            →
+          </button>
+        </div>
+
+        {visibleHuisIds.map(huisId => {
+          const dayBlokken = blokken.filter(b => b.dag === currentDay.volledig && b.huis_id === huisId)
+          const key = `${currentDay.volledig}-${huisId}`
+
+          return (
+            <div key={huisId} style={{ marginBottom: 20 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", margin: "0 0 8px" }}>
+                {HUIS_NAMEN[huisId]}
+              </h3>
+
+              {dayBlokken.map(blok => (
+                <div
+                  key={blok.id}
                   style={{
-                    padding: '1rem',
-                    color: COLORS.white,
-                    fontWeight: '600',
-                    textAlign: 'center',
-                    borderBottom: '2px solid ' + COLORS.primary
+                    padding: 12,
+                    marginBottom: 8,
+                    backgroundColor: "#f8fafc",
+                    borderRadius: 8,
+                    borderLeft: "3px solid #1e3a5f",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start"
                   }}
                 >
-                  <div>{weekdagen[idx]}</div>
-                  <div style={{ fontSize: '12px', fontWeight: '400' }}>
-                    {date.getDate()}/{date.getMonth() + 1}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 500, fontSize: 12, color: "#1e293b" }}>{blok.blok}</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{blok.tijdslot}</div>
                   </div>
-                </th>
+                  <button
+                    onClick={() => handleDeleteBlok(blok.id)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      color: "#ef4444",
+                      padding: "2px 4px",
+                      minHeight: 44,
+                      minWidth: 44
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {blokken.map((blok, blokIdx) => (
-              <tr key={blok} style={{
-                backgroundColor: blokIdx % 2 === 0 ? COLORS.white : '#f9f9f9'
-              }}>
-                <td style={{
-                  padding: '1rem',
-                  fontWeight: '600',
-                  color: COLORS.primary,
-                  borderBottom: '1px solid #e0e0e0'
-                }}>
-                  {blok}
-                </td>
-                {weekDates.map((date, dateIdx) => {
-                  const key = `${date.toISOString().split('T')[0]}-${blok}`
-                  const isAssigned = blokkeringen.some(b =>
-                    b.date === date.toISOString().split('T')[0] && b.blok === blok
-                  )
-                  return (
-                    <td
-                      key={dateIdx}
-                      onClick={() => !isAssigned && handleAddBlock(date, blok)}
+
+              {!addingBlok[key] ? (
+                <button
+                  onClick={() => setAddingBlok(prev => ({ ...prev, [key]: true }))}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 6,
+                    border: "1px solid #e2e8f0",
+                    background: "white",
+                    color: "#475569",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    minHeight: 44,
+                    width: "100%"
+                  }}
+                >
+                  + Blok toevoegen
+                </button>
+              ) : (
+                <div style={{ padding: 12, backgroundColor: "white", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                  <input
+                    placeholder="Bloknaam"
+                    value={formData[key]?.blok || ""}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        [key]: { ...prev[key], blok: e.target.value }
+                      }))
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                      marginBottom: 8,
+                      boxSizing: "border-box",
+                      minHeight: 44
+                    }}
+                  />
+                  <ChipSelect
+                    opties={TIJDSLOTEN}
+                    waarde={formData[key]?.tijdslot || "Ochtend"}
+                    onChange={(val) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        [key]: { ...prev[key], tijdslot: val }
+                      }))
+                    }
+                    small
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <button
+                      onClick={() => handleAddBlok(currentDay.volledig, huisId)}
                       style={{
-                        padding: '1rem',
-                        textAlign: 'center',
-                        borderBottom: '1px solid #e0e0e0',
-                        cursor: 'pointer',
-                        backgroundColor: isAssigned ? '#d4edda' : 'transparent',
-                        transition: 'all 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isAssigned) e.target.style.backgroundColor = '#f0f0f0'
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isAssigned) e.target.style.backgroundColor = 'transparent'
+                        flex: 1,
+                        padding: "8px 12px",
+                        borderRadius: 6,
+                        border: "none",
+                        background: "#1e3a5f",
+                        color: "white",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        minHeight: 44
                       }}
                     >
-                      {isAssigned ? '✓' : '-'}
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                      Toevoegen
+                    </button>
+                    <button
+                      onClick={() =>
+                        setAddingBlok(prev => {
+                          const updated = { ...prev }
+                          delete updated[key]
+                          return updated
+                        })
+                      }
+                      style={{
+                        flex: 1,
+                        padding: "8px 12px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background: "white",
+                        color: "#475569",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        minHeight: 44
+                      }}
+                    >
+                      Annuleer
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     )
   }
 
   return (
     <div>
-      <h2 style={{
-        fontSize: isMobile ? '20px' : '28px',
-        fontWeight: '700',
-        color: COLORS.primary,
-        marginBottom: '1.5rem'
-      }}>
-        Planning
-      </h2>
+      <h1 style={{ fontSize: 20, fontWeight: 600, color: "#1e293b", margin: "0 0 4px" }}>
+        Week planning
+      </h1>
+      <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
+        {weekDatums[0].datum} - {weekDatums[4].datum}
+      </div>
 
-      {loading ? (
-        <p style={{ textAlign: 'center', color: '#999' }}>Laden...</p>
-      ) : (
-        <>
-          <PlanningGrid />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+        {weekDatums.map(({ dag, datum, volledig }) => {
+          const dayBlokken = blokken.filter(b => b.dag === volledig)
 
-          <div style={{
-            backgroundColor: COLORS.white,
-            borderRadius: '8px',
-            padding: '1.5rem',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-          }}>
-            <h3 style={{
-              fontSize: '16px',
-              fontWeight: '600',
-              color: COLORS.primary,
-              marginBottom: '1rem'
-            }}>
-              Legende
-            </h3>
-            <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
-              <li style={{ marginBottom: '0.5rem', fontSize: '14px' }}>
-                <strong>Ochtend:</strong> 08:00 - 12:00
-              </li>
-              <li style={{ marginBottom: '0.5rem', fontSize: '14px' }}>
-                <strong>Namiddag:</strong> 13:00 - 17:00
-              </li>
-              <li style={{ fontSize: '14px' }}>
-                <strong>Hele dag:</strong> 08:00 - 17:00
-              </li>
-            </ul>
-          </div>
-        </>
-      )}
+          return (
+            <div
+              key={volledig}
+              style={{
+                backgroundColor: "white",
+                borderRadius: 12,
+                padding: 12,
+                boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
+              }}
+            >
+              <h3 style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", margin: "0 0 2px" }}>
+                {dag}
+              </h3>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 8 }}>{datum}</div>
+
+              {dayBlokken.map(blok => (
+                <div
+                  key={blok.id}
+                  style={{
+                    padding: 8,
+                    marginBottom: 6,
+                    backgroundColor: "#f8fafc",
+                    borderRadius: 6,
+                    borderLeft: "2px solid #1e3a5f"
+                  }}
+                >
+                  <div style={{ fontWeight: 500, fontSize: 12, color: "#1e293b" }}>{blok.blok}</div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{blok.tijdslot}</div>
+                  {magAllesZien && (
+                    <div style={{ fontSize: 10, color: "#475569", marginTop: 2 }}>
+                      {HUIS_NAMEN[blok.huis_id]}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => handleDeleteBlok(blok.id)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      color: "#ef4444",
+                      padding: "2px 4px",
+                      marginTop: 4,
+                      minHeight: 44,
+                      fontWeight: 500
+                    }}
+                  >
+                    ✕ Verwijder
+                  </button>
+                </div>
+              ))}
+
+              {visibleHuisIds.length === 1 ? (
+                <>
+                  {!addingBlok[volledig] ? (
+                    <button
+                      onClick={() => setAddingBlok(prev => ({ ...prev, [volledig]: true }))}
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        borderRadius: 6,
+                        border: "1px solid #e2e8f0",
+                        background: "white",
+                        color: "#475569",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        fontWeight: 500,
+                        marginTop: 8,
+                        minHeight: 44
+                      }}
+                    >
+                      + Blok
+                    </button>
+                  ) : (
+                    <div style={{ padding: 8, marginTop: 8, backgroundColor: "#f8fafc", borderRadius: 6 }}>
+                      <input
+                        placeholder="Bloknaam"
+                        value={formData[volledig]?.blok || ""}
+                        onChange={(e) =>
+                          setFormData(prev => ({
+                            ...prev,
+                            [volledig]: { ...prev[volledig], blok: e.target.value }
+                          }))
+                        }
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 11,
+                          marginBottom: 6,
+                          boxSizing: "border-box",
+                          minHeight: 44
+                        }}
+                      />
+                      <ChipSelect
+                        opties={TIJDSLOTEN}
+                        waarde={formData[volledig]?.tijdslot || "Ochtend"}
+                        onChange={(val) =>
+                          setFormData(prev => ({
+                            ...prev,
+                            [volledig]: { ...prev[volledig], tijdslot: val }
+                          }))
+                        }
+                        small
+                      />
+                      <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                        <button
+                          onClick={() => handleAddBlok(volledig, visibleHuisIds[0])}
+                          style={{
+                            flex: 1,
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                            border: "none",
+                            background: "#1e3a5f",
+                            color: "white",
+                            cursor: "pointer",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            minHeight: 44
+                          }}
+                        >
+                          OK
+                        </button>
+                        <button
+                          onClick={() =>
+                            setAddingBlok(prev => {
+                              const updated = { ...prev }
+                              delete updated[volledig]
+                              return updated
+                            })
+                          }
+                          style={{
+                            flex: 1,
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            background: "white",
+                            color: "#475569",
+                            cursor: "pointer",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            minHeight: 44
+                          }}
+                        >
+                          X
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {magAllesZien &&
+                    visibleHuisIds.map(huisId => {
+                      const key = `${volledig}-${huisId}`
+                      return (
+                        <div key={huisId} style={{ marginTop: 8 }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: "#475569", marginBottom: 4 }}>
+                            {HUIS_NAMEN[huisId]}
+                          </div>
+                          {!addingBlok[key] ? (
+                            <button
+                              onClick={() => setAddingBlok(prev => ({ ...prev, [key]: true }))}
+                              style={{
+                                width: "100%",
+                                padding: "6px 8px",
+                                borderRadius: 4,
+                                border: "1px solid #e2e8f0",
+                                background: "white",
+                                color: "#475569",
+                                cursor: "pointer",
+                                fontSize: 10,
+                                fontWeight: 500,
+                                minHeight: 44
+                              }}
+                            >
+                              + Blok
+                            </button>
+                          ) : (
+                            <div style={{ padding: 6, backgroundColor: "#f8fafc", borderRadius: 4 }}>
+                              <input
+                                placeholder="Bloknaam"
+                                value={formData[key]?.blok || ""}
+                                onChange={(e) =>
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    [key]: { ...prev[key], blok: e.target.value }
+                                  }))
+                                }
+                                style={{
+                                  width: "100%",
+                                  padding: "4px 6px",
+                                  borderRadius: 3,
+                                  border: "1px solid #d1d5db",
+                                  fontSize: 10,
+                                  marginBottom: 4,
+                                  boxSizing: "border-box",
+                                  minHeight: 44
+                                }}
+                              />
+                              <ChipSelect
+                                opties={TIJDSLOTEN}
+                                waarde={formData[key]?.tijdslot || "Ochtend"}
+                                onChange={(val) =>
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    [key]: { ...prev[key], tijdslot: val }
+                                  }))
+                                }
+                                small
+                              />
+                              <div style={{ display: "flex", gap: 3, marginTop: 4 }}>
+                                <button
+                                  onClick={() => handleAddBlok(volledig, huisId)}
+                                  style={{
+                                    flex: 1,
+                                    padding: "3px 6px",
+                                    borderRadius: 3,
+                                    border: "none",
+                                    background: "#1e3a5f",
+                                    color: "white",
+                                    cursor: "pointer",
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                    minHeight: 44
+                                  }}
+                                >
+                                  OK
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    setAddingBlok(prev => {
+                                      const updated = { ...prev }
+                                      delete updated[key]
+                                      return updated
+                                    })
+                                  }
+                                  style={{
+                                    flex: 1,
+                                    padding: "3px 6px",
+                                    borderRadius: 3,
+                                    border: "1px solid #d1d5db",
+                                    background: "white",
+                                    color: "#475569",
+                                    cursor: "pointer",
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                    minHeight: 44
+                                  }}
+                                >
+                                  X
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

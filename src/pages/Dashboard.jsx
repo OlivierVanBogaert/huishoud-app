@@ -1,44 +1,69 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useMobile } from '../hooks/useMobile'
+import TaakKaart from '../components/TaakKaart'
 
-const COLORS = {
-  primary: '#1e3a5f',
-  secondary: '#2d5f8a',
-  white: '#ffffff',
-  light: '#f5f5f5'
+const PRIORITEITEN = { hoog: "🔴", normaal: "🟠", laag: "🟢" }
+
+const HUIS_IDS = {
+  "🏠 Olivier & Ashley": "ada24453-c203-4639-be69-0cdae55df9f4",
+  "🏡 Jan": "b678cfb5-66be-4a29-8200-7b417e9e7ff5"
 }
+
+const HUIS_NAMEN = Object.fromEntries(Object.entries(HUIS_IDS).map(([k, v]) => [v, k]))
 
 export default function Dashboard() {
   const { user } = useAuth()
   const isMobile = useMobile()
-  const [stats, setStats] = useState({
-    totalTaken: 0,
-    activeTaken: 0,
-    completedTaken: 0,
-    boodschappenOpen: 0
-  })
+  const navigate = useNavigate()
+  const [taken, setTaken] = useState([])
+  const [openBoodschappen, setOpenBoodschappen] = useState(0)
+  const [totaalUrenMin, setTotaalUrenMin] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [recentTaken, setRecentTaken] = useState([])
+
+  const visibleHuisIds = (user?.permissions || []).map(perm => HUIS_IDS[perm]).filter(Boolean)
+  const magAllesZien = user?.permissions?.length > 1
 
   useEffect(() => {
-    loadDashboard()
+    if (user?.permissions?.length > 0) {
+      loadDashboard()
+    }
   }, [user])
 
   const loadDashboard = async () => {
     try {
       setLoading(true)
+      // Load taken
+      const { data: takenData, error: takenErr } = await supabase
+        .from('taken')
+        .select('*, reacties(*)')
+        .in('huis_id', visibleHuisIds)
+      if (takenErr) throw takenErr
+      setTaken(takenData || [])
 
-      // For now, load mock data since we don't have a database yet
-      // This will be replaced with real Supabase queries once the schema is set up
-      setStats({
-        totalTaken: 0,
-        activeTaken: 0,
-        completedTaken: 0,
-        boodschappenOpen: 0
-      })
-      setRecentTaken([])
+      // Load open boodschappen count
+      const { count, error: boodErr } = await supabase
+        .from('boodschappen')
+        .select('id', { count: 'exact', head: true })
+        .in('huis_id', visibleHuisIds)
+        .eq('gedaan', false)
+      if (!boodErr) setOpenBoodschappen(count || 0)
+
+      // Load uren total
+      const { data: urenData, error: urenErr } = await supabase
+        .from('uren')
+        .select('start_tijd, einde_tijd, pauze_minuten')
+        .eq('gebruiker_id', user.id)
+      if (!urenErr && urenData) {
+        const totaal = urenData.reduce((sum, u) => {
+          const [sh, sm] = u.start_tijd.split(':').map(Number)
+          const [eh, em] = u.einde_tijd.split(':').map(Number)
+          return sum + (eh * 60 + em) - (sh * 60 + sm) - (u.pauze_minuten || 0)
+        }, 0)
+        setTotaalUrenMin(totaal)
+      }
     } catch (error) {
       console.error('Error loading dashboard:', error)
     } finally {
@@ -46,128 +71,233 @@ export default function Dashboard() {
     }
   }
 
-  const StatCard = ({ label, value, icon, color }) => (
-    <div style={{
-      backgroundColor: COLORS.white,
-      borderRadius: '8px',
-      padding: '1.5rem',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-      textAlign: 'center',
-      borderTop: `4px solid ${color}`
-    }}>
-      <div style={{ fontSize: '28px', marginBottom: '0.5rem' }}>
-        {icon}
-      </div>
-      <div style={{
-        fontSize: '32px',
-        fontWeight: '700',
-        color: COLORS.primary,
-        marginBottom: '0.5rem'
-      }}>
-        {value}
-      </div>
-      <div style={{
-        fontSize: '14px',
-        color: '#666',
-        fontWeight: '500'
-      }}>
-        {label}
-      </div>
-    </div>
-  )
+  const handleAddReaction = async (taakId, tekst) => {
+    if (!tekst.trim()) return
 
-  const statsGrid = [
-    { label: 'Totaal taken', value: stats.totalTaken, icon: '📋', color: COLORS.secondary },
-    { label: 'Actief', value: stats.activeTaken, icon: '⚡', color: '#ffc107' },
-    { label: 'Afgerond', value: stats.completedTaken, icon: '✓', color: '#28a745' },
-    { label: 'Boodschappen', value: stats.boodschappenOpen, icon: '🛒', color: '#dc3545' }
+    try {
+      const { error } = await supabase.from('reacties').insert({
+        taak_id: taakId,
+        van: user.name,
+        tekst: tekst.trim()
+      })
+
+      if (error) throw error
+      await loadDashboard()
+    } catch (error) {
+      console.error('Error adding reaction:', error)
+    }
+  }
+
+  const handleDeleteTask = async (taakId) => {
+    if (!window.confirm('Weet je zeker dat je deze taak wilt verwijderen?')) {
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('taken')
+        .delete()
+        .eq('id', taakId)
+
+      if (error) throw error
+      await loadDashboard()
+    } catch (error) {
+      console.error('Error deleting task:', error)
+    }
+  }
+
+  const handleStatusChange = async (taakId, newStatus) => {
+    try {
+      const { error } = await supabase
+        .from('taken')
+        .update({ status: newStatus })
+        .eq('id', taakId)
+
+      if (error) throw error
+      await loadDashboard()
+    } catch (error) {
+      console.error('Error updating task status:', error)
+    }
+  }
+
+  // Get today's date
+  const vandaag = new Date().toISOString().slice(0, 10)
+
+  // Calculate stats
+  const vandaagTaken = taken.filter(t => t.datum === vandaag && t.status !== 'klaar')
+  const dringendTaken = taken.filter(t => t.prioriteit === 'hoog' && t.status !== 'klaar')
+
+  const statCards = [
+    {
+      label: 'Vandaag',
+      waarde: vandaagTaken.length,
+      kleur: '#3b82f6',
+      icon: '📅',
+      link: 'taken'
+    },
+    {
+      label: 'Dringend',
+      waarde: dringendTaken.length,
+      kleur: '#ef4444',
+      icon: '🔴',
+      link: 'taken'
+    },
+    {
+      label: 'Boodschappen',
+      waarde: openBoodschappen,
+      kleur: '#f59e0b',
+      icon: '🛒',
+      link: 'boodschappen'
+    },
+    {
+      label: 'Uren',
+      waarde: `${Math.floor(totaalUrenMin / 60)}h`,
+      kleur: '#10b981',
+      icon: '⏱️',
+      link: 'uren'
+    }
   ]
+
+  // Get today's date in Dutch format
+  const vandaagFormatted = new Date().toLocaleDateString('nl-NL', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  })
 
   return (
     <div>
-      <h2 style={{
-        fontSize: isMobile ? '20px' : '28px',
-        fontWeight: '700',
-        color: COLORS.primary,
-        marginBottom: '1.5rem'
-      }}>
-        Welkom, {user?.name}
-      </h2>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{
+          fontSize: isMobile ? 18 : 22,
+          fontWeight: 700,
+          color: '#1e293b',
+          margin: 0
+        }}>
+          Hallo {user?.name} 👋
+        </h1>
+        <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 13, textTransform: 'capitalize' }}>
+          {vandaagFormatted}
+        </p>
+      </div>
 
-      {/* Stats Grid */}
+      {/* Stat Cards */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
-        gap: '1rem',
-        marginBottom: '2rem'
+        gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+        gap: 14,
+        marginBottom: 24
       }}>
-        {statsGrid.map((stat, idx) => (
-          <StatCard key={idx} {...stat} />
+        {statCards.map(stat => (
+          <div
+            key={stat.label}
+            onClick={() => navigate(`/${stat.link}`)}
+            style={{
+              backgroundColor: 'white',
+              borderRadius: 12,
+              padding: 16,
+              cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              border: '1px solid #e2e8f0',
+              transition: 'all 0.15s',
+              minHeight: 100
+            }}
+          >
+            <div style={{ fontSize: isMobile ? 24 : 28, marginBottom: 8 }}>
+              {stat.icon}
+            </div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>
+              {stat.label}
+            </div>
+            <div style={{
+              fontSize: isMobile ? 20 : 24,
+              fontWeight: 700,
+              color: stat.kleur
+            }}>
+              {stat.waarde}
+            </div>
+          </div>
         ))}
       </div>
 
-      {/* Recent Tasks */}
+      {/* Vandaag & Dringend sections */}
       <div style={{
-        backgroundColor: COLORS.white,
-        borderRadius: '8px',
-        padding: '1.5rem',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)',
+        gap: 14
       }}>
-        <h3 style={{
-          fontSize: '18px',
-          fontWeight: '700',
-          color: COLORS.primary,
-          marginBottom: '1rem'
+        {/* Vandaag */}
+        <div style={{
+          backgroundColor: 'white',
+          borderRadius: 12,
+          padding: 16,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          border: '1px solid #e2e8f0'
         }}>
-          Recente taken
-        </h3>
+          <h3 style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: '#1e293b',
+            margin: '0 0 12px'
+          }}>
+            Vandaag
+          </h3>
+          {loading ? (
+            <p style={{ color: '#94a3b8', fontSize: 13 }}>Laden...</p>
+          ) : vandaagTaken.length === 0 ? (
+            <p style={{ color: '#94a3b8', fontSize: 13 }}>Geen taken vandaag</p>
+          ) : (
+            <div>
+              {vandaagTaken.slice(0, 3).map(t => (
+                <TaakKaart
+                  key={t.id}
+                  taak={t}
+                  magAllesZien={magAllesZien}
+                  onStatusChange={handleStatusChange}
+                  onDelete={handleDeleteTask}
+                  onAddReaction={handleAddReaction}
+                />
+              ))}
+            </div>
+          )}
+        </div>
 
-        {loading ? (
-          <p style={{ color: '#999', textAlign: 'center', padding: '2rem 0' }}>
-            Laden...
-          </p>
-        ) : recentTaken.length === 0 ? (
-          <p style={{ color: '#999', textAlign: 'center', padding: '2rem 0' }}>
-            Geen taken gevonden
-          </p>
-        ) : (
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-            {recentTaken.map((taak, idx) => (
-              <li
-                key={idx}
-                style={{
-                  padding: '1rem',
-                  borderBottom: idx < recentTaken.length - 1 ? '1px solid #e0e0e0' : 'none'
-                }}
-              >
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}>
-                  <div>
-                    <p style={{ margin: '0 0 0.5rem 0', fontWeight: '600' }}>
-                      {taak.taak}
-                    </p>
-                    <p style={{ margin: 0, fontSize: '12px', color: '#999' }}>
-                      {taak.persoon}
-                    </p>
-                  </div>
-                  <span style={{
-                    padding: '0.25rem 0.75rem',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    backgroundColor: taak.status === 'klaar' ? '#d4edda' : '#fff3cd',
-                    color: taak.status === 'klaar' ? '#155724' : '#856404'
-                  }}>
-                    {taak.status}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        {/* Dringend */}
+        <div style={{
+          backgroundColor: 'white',
+          borderRadius: 12,
+          padding: 16,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          border: '1px solid #e2e8f0'
+        }}>
+          <h3 style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: '#1e293b',
+            margin: '0 0 12px'
+          }}>
+            Dringend
+          </h3>
+          {loading ? (
+            <p style={{ color: '#94a3b8', fontSize: 13 }}>Laden...</p>
+          ) : dringendTaken.length === 0 ? (
+            <p style={{ color: '#94a3b8', fontSize: 13 }}>Geen dringende taken</p>
+          ) : (
+            <div>
+              {dringendTaken.slice(0, 3).map(t => (
+                <TaakKaart
+                  key={t.id}
+                  taak={t}
+                  magAllesZien={magAllesZien}
+                  onStatusChange={handleStatusChange}
+                  onDelete={handleDeleteTask}
+                  onAddReaction={handleAddReaction}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

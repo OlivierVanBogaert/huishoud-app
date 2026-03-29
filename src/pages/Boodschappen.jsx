@@ -2,32 +2,46 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useMobile } from '../hooks/useMobile'
+import ChipSelect from '../components/ChipSelect'
 
-const COLORS = {
-  primary: '#1e3a5f',
-  secondary: '#2d5f8a',
-  white: '#ffffff',
-  light: '#f5f5f5',
-  danger: '#dc3545'
+const HUIS_IDS = {
+  "🏠 Olivier & Ashley": "ada24453-c203-4639-be69-0cdae55df9f4",
+  "🏡 Jan": "b678cfb5-66be-4a29-8200-7b417e9e7ff5"
 }
+
+const HUIS_NAMEN = Object.fromEntries(Object.entries(HUIS_IDS).map(([k, v]) => [v, k]))
+const HUISHOUDENS = ["🏠 Olivier & Ashley", "🏡 Jan"]
 
 export default function Boodschappen() {
   const { user } = useAuth()
   const isMobile = useMobile()
-  const [boodschappen, setBoodschappen] = useState([])
+  const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
-  const [newItem, setNewItem] = useState('')
-  const [filterDone, setFilterDone] = useState(false)
+  const [newItemText, setNewItemText] = useState('')
+  const [selectedHuis, setSelectedHuis] = useState(null)
+
+  const magAllesZien = user?.permissions?.length > 1
+  const visibleHuisIds = user?.permissions?.map(perm => HUIS_IDS[perm]).filter(Boolean) || []
+  const defaultHuis = visibleHuisIds[0]
 
   useEffect(() => {
-    loadBoodschappen()
-  }, [user])
+    if (visibleHuisIds.length > 0) {
+      setSelectedHuis(defaultHuis)
+      loadItems()
+    }
+  }, [user, visibleHuisIds.length])
 
-  const loadBoodschappen = async () => {
+  const loadItems = async () => {
     try {
       setLoading(true)
-      // Mock data for now - will be replaced with real Supabase queries
-      setBoodschappen([])
+      const { data, error } = await supabase
+        .from('boodschappen')
+        .select('*')
+        .in('huis_id', visibleHuisIds)
+        .order('created_at', { ascending: true })
+
+      if (error) throw error
+      setItems(data || [])
     } catch (error) {
       console.error('Error loading boodschappen:', error)
     } finally {
@@ -35,14 +49,21 @@ export default function Boodschappen() {
     }
   }
 
-  const handleAddItem = async (e) => {
-    e.preventDefault()
-    if (!newItem.trim()) return
+  const handleAddItem = async (huisId) => {
+    if (!newItemText.trim()) return
 
     try {
-      // This will be implemented once Supabase schema is set up
-      setNewItem('')
-      await loadBoodschappen()
+      const { error } = await supabase
+        .from('boodschappen')
+        .insert({
+          item: newItemText,
+          huis_id: huisId,
+          gedaan: false
+        })
+
+      if (error) throw error
+      setNewItemText('')
+      await loadItems()
     } catch (error) {
       console.error('Error adding item:', error)
     }
@@ -50,8 +71,13 @@ export default function Boodschappen() {
 
   const handleToggleItem = async (id, currentDone) => {
     try {
-      // This will be implemented once Supabase schema is set up
-      await loadBoodschappen()
+      const { error } = await supabase
+        .from('boodschappen')
+        .update({ gedaan: !currentDone })
+        .eq('id', id)
+
+      if (error) throw error
+      await loadItems()
     } catch (error) {
       console.error('Error updating item:', error)
     }
@@ -59,229 +85,251 @@ export default function Boodschappen() {
 
   const handleDeleteItem = async (id) => {
     try {
-      // This will be implemented once Supabase schema is set up
-      await loadBoodschappen()
+      const { error } = await supabase
+        .from('boodschappen')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+      await loadItems()
     } catch (error) {
       console.error('Error deleting item:', error)
     }
   }
 
-  const undone = boodschappen.filter(b => !b.gedaan)
-  const done = boodschappen.filter(b => b.gedaan)
+  if (loading) {
+    return <p style={{ textAlign: 'center', color: '#999' }}>Laden...</p>
+  }
+
+  if (!user || visibleHuisIds.length === 0) {
+    return <p style={{ textAlign: 'center', color: '#999' }}>Geen huishoudens toegankelijk</p>
+  }
+
+  const huishoudenToShow = magAllesZien ? visibleHuisIds : [defaultHuis]
 
   return (
     <div>
-      <h2 style={{
-        fontSize: isMobile ? '20px' : '28px',
-        fontWeight: '700',
-        color: COLORS.primary,
-        marginBottom: '1.5rem'
-      }}>
-        Boodschappenlijst
-      </h2>
+      <h1 style={{ fontSize: isMobile ? 18 : 24, fontWeight: 600, color: "#1e293b", margin: "0 0 16px" }}>
+        Boodschappen
+      </h1>
 
-      {/* Add Item Form */}
       <div style={{
-        backgroundColor: COLORS.white,
-        borderRadius: '8px',
-        padding: '1.5rem',
-        marginBottom: '1.5rem',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+        backgroundColor: "white",
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 16,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
       }}>
-        <form onSubmit={handleAddItem} style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <input
-            type="text"
-            value={newItem}
-            onChange={(e) => setNewItem(e.target.value)}
-            placeholder="Voeg item toe..."
+            placeholder="Nieuw item"
+            value={newItemText}
+            onChange={(e) => setNewItemText(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleAddItem(selectedHuis || defaultHuis)
+              }
+            }}
             style={{
               flex: 1,
-              padding: '0.75rem',
-              borderRadius: '6px',
-              border: `1px solid ${COLORS.secondary}`,
-              fontSize: '14px',
-              boxSizing: 'border-box'
+              padding: "10px 12px",
+              borderRadius: 8,
+              border: "1px solid #d1d5db",
+              fontSize: 13,
+              minHeight: 44,
+              minWidth: isMobile ? "100%" : "auto",
+              boxSizing: "border-box"
             }}
           />
+          {magAllesZien && (
+            <ChipSelect
+              opties={huishoudenToShow.map(id => HUIS_NAMEN[id])}
+              waarde={HUIS_NAMEN[selectedHuis] || HUIS_NAMEN[defaultHuis]}
+              onChange={(name) => setSelectedHuis(HUIS_IDS[name])}
+            />
+          )}
           <button
-            type="submit"
+            onClick={() => handleAddItem(selectedHuis || defaultHuis)}
             style={{
-              padding: isMobile ? '0.75rem 1rem' : '0.75rem 1.5rem',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: COLORS.secondary,
-              color: COLORS.white,
-              cursor: 'pointer',
-              fontSize: '14px',
-              fontWeight: '600',
-              whiteSpace: 'nowrap'
+              padding: "10px 16px",
+              backgroundColor: "#1e3a5f",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: 13,
+              minHeight: 44,
+              whiteSpace: "nowrap"
             }}
           >
-            {isMobile ? '+' : '+ Toevoegen'}
+            + Voeg toe
           </button>
-        </form>
+        </div>
       </div>
 
-      {/* Filter Toggle */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <button
-          onClick={() => setFilterDone(!filterDone)}
-          style={{
-            padding: '0.5rem 1rem',
-            borderRadius: '4px',
-            border: 'none',
-            backgroundColor: filterDone ? COLORS.secondary : 'transparent',
-            color: filterDone ? COLORS.white : COLORS.secondary,
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: '500',
-            transition: 'all 0.2s',
-            borderBottom: filterDone ? 'none' : `2px solid ${COLORS.secondary}`
-          }}
-        >
-          {filterDone ? 'Alles weergeven' : 'Alleen openstaande'}
-        </button>
-      </div>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: isMobile ? "1fr" : magAllesZien ? "repeat(2, 1fr)" : "1fr",
+        gap: 16
+      }}>
+        {huishoudenToShow.map(huisId => {
+          const huisItems = items.filter(i => i.huis_id === huisId)
+          const undone = huisItems.filter(i => !i.gedaan)
+          const done = huisItems.filter(i => i.gedaan)
 
-      {/* Items List */}
-      {loading ? (
-        <p style={{ textAlign: 'center', color: '#999' }}>Laden...</p>
-      ) : (
-        <>
-          {/* Undone Items */}
-          <div style={{
-            backgroundColor: COLORS.white,
-            borderRadius: '8px',
-            overflow: 'hidden',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-            marginBottom: undone.length > 0 ? '1.5rem' : 0
-          }}>
-            {undone.length === 0 ? (
-              <p style={{
-                padding: '1.5rem',
-                textAlign: 'center',
-                color: '#999',
-                margin: 0
-              }}>
-                Alles afgevinkt !🎉
-              </p>
-            ) : (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {undone.map((item, idx) => (
-                  <li
-                    key={item.id}
-                    style={{
-                      padding: '1rem',
-                      borderBottom: idx < undone.length - 1 ? '1px solid #e0e0e0' : 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.75rem'
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={false}
-                      onChange={() => handleToggleItem(item.id, false)}
-                      style={{
-                        width: '20px',
-                        height: '20px',
-                        cursor: 'pointer'
-                      }}
-                    />
-                    <span style={{ flex: 1, fontSize: '14px' }}>
-                      {item.item}
-                    </span>
-                    <button
-                      onClick={() => handleDeleteItem(item.id)}
-                      style={{
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '4px',
-                        border: 'none',
-                        backgroundColor: 'transparent',
-                        color: COLORS.danger,
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontWeight: '500'
-                      }}
-                    >
-                      Verwijder
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          return (
+            <div key={huisId}>
+              {magAllesZien && (
+                <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1e293b", margin: "0 0 12px" }}>
+                  {HUIS_NAMEN[huisId]}
+                </h3>
+              )}
 
-          {/* Done Items */}
-          {done.length > 0 && !filterDone && (
-            <div style={{
-              backgroundColor: COLORS.white,
-              borderRadius: '8px',
-              overflow: 'hidden',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-            }}>
               <div style={{
-                padding: '1rem',
-                backgroundColor: '#d4edda',
-                borderBottom: '1px solid #c3e6cb',
-                fontWeight: '600',
-                color: '#155724'
+                backgroundColor: "white",
+                borderRadius: 12,
+                padding: 16,
+                boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
               }}>
-                Afgevinkt ({done.length})
+                {undone.length === 0 && done.length === 0 ? (
+                  <p style={{
+                    margin: 0,
+                    padding: 12,
+                    textAlign: "center",
+                    color: "#94a3b8",
+                    fontSize: 13
+                  }}>
+                    Alles afgevinkt! 🎉
+                  </p>
+                ) : (
+                  <>
+                    {undone.map((item, idx) => (
+                      <div
+                        key={item.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "10px 0",
+                          borderBottom: idx < undone.length - 1 || done.length > 0 ? "1px solid #f1f5f9" : "none",
+                          minHeight: 44
+                        }}
+                      >
+                        <label style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          minHeight: 44,
+                          minWidth: 44,
+                          cursor: "pointer"
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={false}
+                            onChange={() => handleToggleItem(item.id, false)}
+                            style={{ width: 20, height: 20, cursor: "pointer" }}
+                          />
+                        </label>
+                        <span style={{
+                          flex: 1,
+                          fontSize: 13,
+                          color: "#1e293b"
+                        }}>
+                          {item.item}
+                        </span>
+                        <button
+                          onClick={() => handleDeleteItem(item.id)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontSize: 12,
+                            color: "#ef4444",
+                            padding: "4px 8px",
+                            minHeight: 44,
+                            fontWeight: 500
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+
+                    {done.length > 0 && (
+                      <>
+                        <div style={{
+                          padding: "10px 0",
+                          borderTop: undone.length > 0 ? "1px solid #f1f5f9" : "none",
+                          borderBottom: "1px solid #f1f5f9",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: "#475569"
+                        }}>
+                          Afgevinkt ({done.length})
+                        </div>
+                        {done.map((item, idx) => (
+                          <div
+                            key={item.id}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              padding: "10px 0",
+                              borderBottom: idx < done.length - 1 ? "1px solid #f1f5f9" : "none",
+                              minHeight: 44,
+                              backgroundColor: "#f8fafc"
+                            }}
+                          >
+                            <label style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              minHeight: 44,
+                              minWidth: 44,
+                              cursor: "pointer"
+                            }}>
+                              <input
+                                type="checkbox"
+                                checked={true}
+                                onChange={() => handleToggleItem(item.id, true)}
+                                style={{ width: 20, height: 20, cursor: "pointer" }}
+                              />
+                            </label>
+                            <span style={{
+                              flex: 1,
+                              fontSize: 13,
+                              color: "#94a3b8",
+                              textDecoration: "line-through"
+                            }}>
+                              {item.item}
+                            </span>
+                            <button
+                              onClick={() => handleDeleteItem(item.id)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                fontSize: 12,
+                                color: "#ef4444",
+                                padding: "4px 8px",
+                                minHeight: 44,
+                                fontWeight: 500
+                              }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </>
+                )}
               </div>
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {done.map((item, idx) => (
-                  <li
-                    key={item.id}
-                    style={{
-                      padding: '1rem',
-                      borderBottom: idx < done.length - 1 ? '1px solid #e0e0e0' : 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.75rem',
-                      backgroundColor: '#f9f9f9'
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={true}
-                      onChange={() => handleToggleItem(item.id, true)}
-                      style={{
-                        width: '20px',
-                        height: '20px',
-                        cursor: 'pointer'
-                      }}
-                    />
-                    <span style={{
-                      flex: 1,
-                      fontSize: '14px',
-                      textDecoration: 'line-through',
-                      color: '#999'
-                    }}>
-                      {item.item}
-                    </span>
-                    <button
-                      onClick={() => handleDeleteItem(item.id)}
-                      style={{
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '4px',
-                        border: 'none',
-                        backgroundColor: 'transparent',
-                        color: COLORS.danger,
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontWeight: '500'
-                      }}
-                    >
-                      Verwijder
-                    </button>
-                  </li>
-               ))}
-              </ul>
             </div>
-          )}
-        </>
-      )}
+          )
+        })}
+      </div>
     </div>
   )
 }

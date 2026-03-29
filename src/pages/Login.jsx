@@ -1,183 +1,139 @@
 import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { nameToEmail } from '../lib/supabase'
-
-const COLORS = {
-  primary: '#1e3a5f',
-  secondary: '#2d5f8a',
-  white: '#ffffff',
-  light: '#f5f5f5'
-}
+import { useMobile } from '../hooks/useMobile'
 
 export default function Login() {
   const { login, loading, error } = useAuth()
-  const [selectedName, setSelectedName] = useState('')
+  const [name, setName] = useState('')
   const [password, setPassword] = useState('')
-  const [localError, setLocalError] = useState('')
+  const isMobile = useMobile()
 
   const users = Object.keys(nameToEmail)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setLocalError('')
-
-    if (!selectedName || !password) {
-      setLocalError('Vul alstublieft uw naam en wachtwoord in')
-      return
+    if (name && password) {
+      await login(name, password)
     }
-
-    await login(selectedName, password)
   }
 
   return (
     <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: `linear-gradient(135deg, ${COLORS.primary} 0%, ${COLORS.secondary} 100%)`,
-      padding: '1rem'
+      minHeight: "100vh",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "linear-gradient(135deg, #1e3a5f 0%, #2d5f8a 100%)",
+      padding: isMobile ? "12px" : "24px"
     }}>
-      <div style={{
-        backgroundColor: COLORS.white,
-        borderRadius: '12px',
-        padding: '2rem',
-        boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
-        width: '100%',
-        maxWidth: '400px'
-      }}>
-        <h1 style={{
-          textAlign: 'center',
-          fontSize: '28px',
-          fontWeight: '700',
-          color: COLORS.primary,
-          marginBottom: '0.5rem'
-        }}>
-          Huishoud Van Bogaert
-        </h1>
+      {/* Icon and Title */}
+      <div style={{ textAlign: "center", color: "white", marginBottom: isMobile ? "24px" : "32px" }}>
+        <div style={{ fontSize: isMobile ? "48px" : "64px", marginBottom: "12px" }}>🏠</div>
+        <h1 style={{ fontSize: isMobile ? "22px" : "28px", fontWeight: 700, margin: "0 0 8px 0", letterSpacing: "-0.5px" }}>Huishoud Van Bogaert</h1>
+        <p style={{ fontSize: isMobile ? "13px" : "14px", margin: 0, opacity: 0.9 }}>Huishoudelijk beheer</p>
+      </div>
 
-        <p style={{
-          textAlign: 'center',
-          fontSize: '14px',
-          color: '#666',
-          marginBottom: '2rem'
-        }}>
-          Aanmelden
-        </p>
+      {/* Login Card */}
+      <div style={{
+        backgroundColor: "white",
+        borderRadius: "12px",
+        padding: isMobile ? "20px" : "28px",
+        boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
+        width: "100%",
+        maxWidth: isMobile ? "320px" : "380px"
+      }}>
+        <h2 style={{ fontSize: isMobile ? "18px" : "20px", fontWeight: 700, color: "#1e3a5f", margin: "0 0 20px 0", textAlign: "center" }}>Welkom terug</h2>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '14px',
-              fontWeight: '600',
-              color: COLORS.primary,
-              marginBottom: '0.5rem'
-            }}>
-              Selecteer uw naam
-            </label>
-            <select
-              value={selectedName}
-              onChange={(e) => setSelectedName(e.target.value)}
+          {/* Name Input */}
+          <div style={{ marginBottom: "16px" }}>
+            <label style={{ display: "block", fontSize: isMobile ? "12px" : "13px", fontWeight: 600, color: "#1e3a5f", marginBottom: "6px" }}>Naam</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              list="names"
+              placeholder="Selecteer uw naam"
               style={{
-                width: '100%',
-                padding: '0.75rem',
-                borderRadius: '6px',
-                border: `2px solid ${COLORS.secondary}`,
-                fontSize: '14px',
-                fontWeight: '500',
-                color: COLORS.primary,
-                backgroundColor: COLORS.white,
-                cursor: 'pointer',
-                appearance: 'none',
-                backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
-                backgroundRepeat: 'no-repeat',
-                backgroundPosition: 'right 0.75rem center',
-                backgroundSize: '1.5em 1.5em',
-                paddingRight: '2.5rem'
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: "6px",
+                border: "1px solid #e2e8f0",
+                fontSize: isMobile ? "13px" : "14px",
+                color: "#1e3a5f",
+                boxSizing: "border-box",
+                fontFamily: "inherit"
               }}
-            >
-              <option value="">-- Kies een naam --</option>
-              {users.map(name => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
+            />
+            <datalist id="names">
+              {users.map(u => <option key={u} value={u} />)}
+            </datalist>
           </div>
 
-          <div style={{ marginBottom: '2rem' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '14px',
-              fontWeight: '600',
-              color: COLORS.primary,
-              marginBottom: '0.5rem'
-            }}>
-              Wachtwoord
-            </label>
+          {/* Password Input */}
+          <div style={{ marginBottom: "8px" }}>
+            <label style={{ display: "block", fontSize: isMobile ? "12px" : "13px", fontWeight: 600, color: "#1e3a5f", marginBottom: "6px" }}>Wachtwoord</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Voer uw wachtwoord in"
               style={{
-                width: '100%',
-                padding: '0.75rem',
-                borderRadius: '6px',
-                border: `2px solid ${COLORS.secondary}`,
-                fontSize: '14px',
-                color: COLORS.primary,
-                boxSizing: 'border-box'
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: "6px",
+                border: "1px solid #e2e8f0",
+                fontSize: isMobile ? "13px" : "14px",
+                color: "#1e3a5f",
+                boxSizing: "border-box",
+                fontFamily: "inherit"
               }}
             />
           </div>
 
-          {(error || localError) && (
+          {/* Forgot Password Hint */}
+          <p style={{ fontSize: isMobile ? "11px" : "12px", color: "#64748b", margin: "0 0 16px 0" }}>
+            Wachtwoord vergeten? Contacteer Olivier.
+          </p>
+
+          {/* Error Message */}
+          {error && (
             <div style={{
-              backgroundColor: '#f8d7da',
-              color: '#721c24',
-              padding: '0.75rem 1rem',
-              borderRadius: '6px',
-              marginBottom: '1.5rem',
-              fontSize: '14px',
-              fontWeight: '500'
+              backgroundColor: "#fee2e2",
+              color: "#991b1b",
+              padding: "10px 12px",
+              borderRadius: "6px",
+              marginBottom: "16px",
+              fontSize: isMobile ? "12px" : "13px",
+              fontWeight: 500
             }}>
-              {error || localError}
+              {error}
             </div>
           )}
 
+          {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !name || !password}
             style={{
-              width: '100%',
-              padding: '0.75rem',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: COLORS.secondary,
-              color: COLORS.white,
-              fontSize: '16px',
-              fontWeight: '600',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.7 : 1,
-              transition: 'all 0.2s'
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: "6px",
+              border: "none",
+              backgroundColor: loading || !name || !password ? "#cbd5e1" : "#1e3a5f",
+              color: "white",
+              fontSize: isMobile ? "13px" : "14px",
+              fontWeight: 600,
+              cursor: loading || !name || !password ? "not-allowed" : "pointer",
+              opacity: loading || !name || !password ? 0.6 : 1,
+              transition: "all 0.15s"
             }}
-            onMouseEnter={(e) => !loading && (e.target.style.backgroundColor = COLORS.primary)}
-            onMouseLeave={(e) => !loading && (e.target.style.backgroundColor = COLORS.secondary)}
           >
-            {loading ? 'Bezig met aanmelden...' : 'Aanmelden'}
+            {loading ? "Bezig met aanmelden..." : "Aanmelden"}
           </button>
         </form>
-
-        <p style={{
-          textAlign: 'center',
-          fontSize: '12px',
-          color: '#999',
-          marginTop: '1.5rem'
-        }}>
-          Demo-app. Voor testing: zie .env.example voor credentials.
-        </p>
       </div>
     </div>
   )

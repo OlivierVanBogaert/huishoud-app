@@ -3,11 +3,14 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useMobile } from '../hooks/useMobile'
 
-const COLORS = {
-  primary: '#1e3a5f',
-  secondary: '#2d5f8a',
-  white: '#ffffff',
-  light: '#f5f5f5'
+function berekenUren(start, einde, pauze) {
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = einde.split(':').map(Number)
+  const totaalMin = (eh * 60 + em) - (sh * 60 + sm) - pauze
+  return {
+    text: `${Math.floor(totaalMin / 60)}u${(totaalMin % 60).toString().padStart(2, '0')}`,
+    minuten: totaalMin
+  }
 }
 
 export default function Uren() {
@@ -15,23 +18,32 @@ export default function Uren() {
   const isMobile = useMobile()
   const [uren, setUren] = useState([])
   const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState({
     datum: new Date().toISOString().split('T')[0],
-    startTijd: '08:00',
-    eindeTijd: '17:00',
-    pauzeMitten: '30'
+    start_tijd: '08:00',
+    einde_tijd: '17:00',
+    pauze_minuten: 0
   })
 
   useEffect(() => {
-    loadUren()
-  }, [user])
+    if (user?.id) {
+      loadUren()
+    }
+  }, [user?.id])
 
   const loadUren = async () => {
     try {
       setLoading(true)
-      // Mock data for now - will be replaced with real Supabase queries
-      setUren([])
+      const { data, error } = await supabase
+        .from('uren')
+        .select('*')
+        .eq('gebruiker_id', user.id)
+        .order('datum', { ascending: false })
+
+      if (error) throw error
+      setUren(data || [])
     } catch (error) {
       console.error('Error loading uren:', error)
     } finally {
@@ -41,148 +53,114 @@ export default function Uren() {
 
   const handleAddUren = async (e) => {
     e.preventDefault()
+    setSubmitting(true)
 
     try {
-      // This will be implemented once Supabase schema is set up
+      const { error } = await supabase
+        .from('uren')
+        .insert({
+          gebruiker_id: user.id,
+          datum: formData.datum,
+          start_tijd: formData.start_tijd,
+          einde_tijd: formData.einde_tijd,
+          pauze_minuten: parseInt(formData.pauze_minuten) || 0
+        })
+
+      if (error) throw error
+
       setFormData({
         datum: new Date().toISOString().split('T')[0],
-        startTijd: '08:00',
-        eindeTijd: '17:00',
-        pauzeMitten: '30'
+        start_tijd: '08:00',
+        einde_tijd: '17:00',
+        pauze_minuten: 0
       })
       setShowForm(false)
       await loadUren()
     } catch (error) {
       console.error('Error adding uren:', error)
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  const calculateNettoHours = (startTijd, eindeTijd, pauzeMitten) => {
-    const [startHour, startMin] = startTijd.split(':').map(Number)
-    const [endHour, endMin] = eindeTijd.split(':').map(Number)
-
-    const startTotal = startHour * 60 + startMin
-    const endTotal = endHour * 60 + endMin
-    const grossMinutes = endTotal - startTotal
-    const nettoMinutes = grossMinutes - pauzeMitten
-    const hours = Math.floor(nettoMinutes / 60)
-    const minutes = nettoMinutes % 60
-
-    return `${hours}h ${minutes}m`
-  }
-
-  const grossHours = uren.reduce((total, u) => {
-    const [startHour, startMin] = u.startTijd.split(':').map(Number)
-    const [endHour, endMin] = u.eindeTijd.split(':').map(Number)
-    return total + (endHour * 60 + endMin - startHour * 60 - startMin)
-  }, 0)
-
-  const totalPauze = uren.reduce((total, u) => total + u.pauzeMitten, 0)
-  const nettoHours = grossHours - totalPauze
+  // Calculate total hours
+  let totalMinuten = 0
+  uren.forEach((u) => {
+    const calc = berekenUren(u.start_tijd, u.einde_tijd, u.pauze_minuten)
+    totalMinuten += calc.minuten
+  })
+  const totalHours = Math.floor(totalMinuten / 60)
+  const totalMins = totalMinuten % 60
+  const totalDisplay = `${totalHours}u${totalMins.toString().padStart(2, '0')}`
 
   return (
     <div>
       <h2 style={{
         fontSize: isMobile ? '20px' : '28px',
         fontWeight: '700',
-        color: COLORS.primary,
+        color: '#1e3a5f',
         marginBottom: '1.5rem'
       }}>
-        Uren
+        Gewerkte uren
       </h2>
 
-      {/* Summary Cards */}
+      {/* Total + Button */}
       <div style={{
-        display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)',
-        gap: '1rem',
-        marginBottom: '1.5rem'
+        backgroundColor: 'white',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 16,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
       }}>
         <div style={{
-          backgroundColor: COLORS.white,
-          borderRadius: '8px',
-          padding: '1rem',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          textAlign: 'center'
+          fontSize: 13,
+          color: '#64748b',
+          marginBottom: 12
         }}>
-          <div style={{ fontSize: '12px', color: '#999', marginBottom: '0.5rem' }}>
-            Bruto uren
-          </div>
-          <div style={{
-            fontSize: isMobile ? '24px' : '28px',
-            fontWeight: '700',
-            color: COLORS.primary
+          Totaal: <span style={{
+            fontSize: 16,
+            fontWeight: 700,
+            color: '#1e3a5f'
           }}>
-            {Math.floor(grossHours / 60)}h {grossHours % 60}m
-          </div>
+            {totalDisplay}
+          </span>
         </div>
-
-        <div style={{
-          backgroundColor: COLORS.white,
-          borderRadius: '8px',
-          padding: '1rem',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '12px', color: '#999', marginBottom: '0.5rem' }}>
-            Pauze
-          </div>
-          <div style={{
-            fontSize: isMobile ? '24px' : '28px',
-            fontWeight: '700',
-            color: COLORS.primary
-          }}>
-            {Math.floor(totalPauze / 60)}h {totalPauze % 60}m
-          </div>
-        </div>
-
-        <div style={{
-          backgroundColor: COLORS.white,
-          borderRadius: '8px',
-          padding: '1rem',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          textAlign: 'center',
-          gridColumn: isMobile ? 'span 2' : 'auto'
-        }}>
-          <div style={{ fontSize: '12px', color: '#999', marginBottom: '0.5rem' }}>
-            Netto uren
-          </div>
-          <div style={{
-            fontSize: isMobile ? '24px' : '28px',
-            fontWeight: '700',
-            color: COLORS.primary
-          }}>
-            {Math.floor(nettoHours / 60)}h {nettoHours % 60}m
-          </div>
-        </div>
+        {!showForm && (
+          <button
+            onClick={() => setShowForm(true)}
+            style={{
+              padding: '10px 16px',
+              backgroundColor: '#1e3a5f',
+              color: 'white',
+              border: 'none',
+              borderRadius: 8,
+              cursor: 'pointer',
+              fontWeight: 600,
+              minHeight: 44
+            }}
+          >
+            + Handmatig invoeren
+          </button>
+        )}
       </div>
 
-      {/* Add Form */}
+      {/* Manual entry form */}
       {showForm && (
         <div style={{
-          backgroundColor: COLORS.white,
-          borderRadius: '8px',
-          padding: '1.5rem',
-          marginBottom: '1.5rem',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          marginTop: 12,
+          padding: 12,
+          backgroundColor: '#f8fafc',
+          borderRadius: 8,
+          marginBottom: 16
         }}>
-          <h3 style={{
-            fontSize: '16px',
-            fontWeight: '600',
-            color: COLORS.primary,
-            marginBottom: '1rem'
-          }}>
-            Uren toevoegen
-          </h3>
-
           <form onSubmit={handleAddUren}>
-            <div style={{ marginBottom: '1rem' }}>
+            <div style={{ marginBottom: 12 }}>
               <label style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: '#475569',
                 display: 'block',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: COLORS.primary,
-                marginBottom: '0.5rem'
+                marginBottom: 6
               }}>
                 Datum
               </label>
@@ -192,240 +170,320 @@ export default function Uren() {
                 onChange={(e) => setFormData({ ...formData, datum: e.target.value })}
                 style={{
                   width: '100%',
-                  padding: '0.75rem',
-                  borderRadius: '6px',
-                  border: `1px solid ${COLORS.secondary}`,
-                  fontSize: '14px',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  color: COLORS.primary,
-                  marginBottom: '0.5rem'
-                }}>
-                  Starttijd
-                </label>
-                <input
-                  type="time"
-                  value={formData.startTijd}
-                  onChange={(e) => setFormData({ ...formData, startTijd: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    borderRadius: '6px',
-                    border: `1px solid ${COLORS.secondary}`,
-                    fontSize: '14px',
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  color: COLORS.primary,
-                  marginBottom: '0.5rem'
-                }}>
-                  Eindtijd
-                </label>
-                <input
-                  type="time"
-                  value={formData.eindeTijd}
-                  onChange={(e) => setFormData({ ...formData, eindeTijd: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    borderRadius: '6px',
-                    border: `1px solid ${COLORS.secondary}`,
-                    fontSize: '14px',
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: COLORS.primary,
-                marginBottom: '0.5rem'
-              }}>
-                Pauze (minuten)
-              </label>
-              <input
-                type="number"
-                value={formData.pauzeMitten}
-                onChange={(e) => setFormData({ ...formData, pauzeMitten: e.target.value })}
-                min="0"
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  borderRadius: '6px',
-                  border: `1px solid ${COLORS.secondary}`,
-                  fontSize: '14px',
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  border: '1px solid #d1d5db',
+                  fontSize: 13,
+                  minHeight: 44,
                   boxSizing: 'border-box'
                 }}
               />
             </div>
 
             <div style={{
-              padding: '1rem',
-              backgroundColor: COLORS.light,
-              borderRadius: '6px',
-              marginBottom: '1rem',
-              fontSize: '14px',
-              fontWeight: '500',
-              color: COLORS.primary
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)',
+              gap: 10,
+              marginBottom: 12
             }}>
-              Netto: {calculateNettoHours(formData.startTijd, formData.eindeTijd, parseInt(formData.pauzeMitten))}
+              <div>
+                <label style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#475569',
+                  display: 'block',
+                  marginBottom: 6
+                }}>
+                  Start
+                </label>
+                <input
+                  type="time"
+                  value={formData.start_tijd}
+                  onChange={(e) => setFormData({ ...formData, start_tijd: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 6,
+                    border: '1px solid #d1d5db',
+                    fontSize: 13,
+                    minHeight: 44,
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#475569',
+                  display: 'block',
+                  marginBottom: 6
+                }}>
+                  Einde
+                </label>
+                <input
+                  type="time"
+                  value={formData.einde_tijd}
+                  onChange={(e) => setFormData({ ...formData, einde_tijd: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 6,
+                    border: '1px solid #d1d5db',
+                    fontSize: 13,
+                    minHeight: 44,
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#475569',
+                  display: 'block',
+                  marginBottom: 6
+                }}>
+                  Pauze (min)
+                </label>
+                <input
+                  type="number"
+                  value={formData.pauze_minuten}
+                  onChange={(e) => setFormData({ ...formData, pauze_minuten: e.target.value })}
+                  min="0"
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 6,
+                    border: '1px solid #d1d5db',
+                    fontSize: 13,
+                    minHeight: 44,
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: 8 }}>
               <button
                 type="submit"
+                disabled={submitting}
                 style={{
-                  padding: '0.75rem 1.5rem',
-                  borderRadius: '6px',
+                  flex: 1,
+                  padding: '10px',
+                  backgroundColor: '#1e3a5f',
+                  color: 'white',
                   border: 'none',
-                  backgroundColor: COLORS.secondary,
-                  color: COLORS.white,
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: '600'
+                  borderRadius: 6,
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  fontWeight: 600,
+                  minHeight: 44,
+                  opacity: submitting ? 0.6 : 1
                 }}
               >
-                Opslaan
+                {submitting ? 'Bezig...' : 'Voeg uren toe'}
               </button>
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
                 style={{
-                  padding: '0.75rem 1.5rem',
-                  borderRadius: '6px',
-                  border: `1px solid ${COLORS.secondary}`,
-                  backgroundColor: COLORS.white,
-                  color: COLORS.secondary,
+                  flex: 1,
+                  padding: '10px',
+                  backgroundColor: '#e2e8f0',
+                  color: '#64748b',
+                  border: 'none',
+                  borderRadius: 6,
                   cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: '600'
+                  fontWeight: 600,
+                  minHeight: 44
                 }}
               >
-                Annuleren
+                Annuleer
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {!showForm && (
-        <button
-          onClick={() => setShowForm(true)}
-          style={{
-            padding: '0.75rem 1.5rem',
-            borderRadius: '6px',
-            border: 'none',
-            backgroundColor: COLORS.secondary,
-            color: COLORS.white,
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: '600',
-            marginBottom: '1.5rem'
-          }}
-        >
-          + Uren toevoegen
-        </button>
+      {/* Desktop: table */}
+      {!isMobile && (
+        <>
+          {loading ? (
+            <p style={{ textAlign: 'center', color: '#94a3b8' }}>Laden...</p>
+          ) : uren.length === 0 ? (
+            <p style={{ textAlign: 'center', color: '#94a3b8' }}>Nog geen uren ingevoerd</p>
+          ) : (
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: 12,
+              padding: 16,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              overflowX: 'auto'
+            }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #d1d5db' }}>
+                    <th style={{
+                      padding: '10px',
+                      textAlign: 'left',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: '#475569'
+                    }}>
+                      Datum
+                    </th>
+                    <th style={{
+                      padding: '10px',
+                      textAlign: 'left',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: '#475569'
+                    }}>
+                      Start
+                    </th>
+                    <th style={{
+                      padding: '10px',
+                      textAlign: 'left',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: '#475569'
+                    }}>
+                      Einde
+                    </th>
+                    <th style={{
+                      padding: '10px',
+                      textAlign: 'left',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: '#475569'
+                    }}>
+                      Pauze
+                    </th>
+                    <th style={{
+                      padding: '10px',
+                      textAlign: 'left',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: '#475569'
+                    }}>
+                      Uren
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uren.map((u) => {
+                    const calc = berekenUren(u.start_tijd, u.einde_tijd, u.pauze_minuten)
+                    return (
+                      <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{
+                          padding: '10px',
+                          fontSize: 13,
+                          color: '#1e293b'
+                        }}>
+                          {new Date(u.datum).toLocaleDateString('nl-NL')}
+                        </td>
+                        <td style={{
+                          padding: '10px',
+                          fontSize: 13,
+                          color: '#1e293b'
+                        }}>
+                          {u.start_tijd}
+                        </td>
+                        <td style={{
+                          padding: '10px',
+                          fontSize: 13,
+                          color: '#1e293b'
+                        }}>
+                          {u.einde_tijd}
+                        </td>
+                        <td style={{
+                          padding: '10px',
+                          fontSize: 13,
+                          color: '#1e293b'
+                        }}>
+                          {u.pauze_minuten}
+                        </td>
+                        <td style={{
+                          padding: '10px',
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: '#1e3a5f'
+                        }}>
+                          {calc.text}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
 
-      {/* Uren List */}
-      {loading ? (
-        <p style={{ textAlign: 'center', color: '#999' }}>Laden...</p>
-      ) : uren.length === 0 ? (
-        <p style={{ textAlign: 'center', color: '#999' }}>Nog geen uren ingevoerd</p>
-      ) : (
-        <div style={{
-          backgroundColor: COLORS.white,
-          borderRadius: '8px',
-          overflow: 'hidden',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-        }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ backgroundColor: COLORS.secondary }}>
-                <th style={{
-                  padding: '1rem',
-                  color: COLORS.white,
-                  fontWeight: '600',
-                  textAlign: 'left',
-                  fontSize: '14px'
-                }}>
-                  Datum
-                </th>
-                <th style={{
-                  padding: '1rem',
-                  color: COLORS.white,
-                  fontWeight: '600',
-                  textAlign: 'center',
-                  fontSize: '14px'
-                }}>
-                  Start
-                </th>
-                <th style={{
-                  padding: '1rem',
-                  color: COLORS.white,
-                  fontWeight: '600',
-                  textAlign: 'center',
-                  fontSize: '14px'
-                }}>
-                  Einde
-                </th>
-                <th style={{
-                  padding: '1rem',
-                  color: COLORS.white,
-                  fontWeight: '600',
-                  textAlign: 'center',
-                  fontSize: '14px'
-                }}>
-                  Netto
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {uren.map((entry, idx) => (
-                <tr
-                  key={idx}
-                  style={{
-                    backgroundColor: idx % 2 === 0 ? COLORS.white : '#f9f9f9',
-                    borderBottom: '1px solid #e0e0e0'
-                  }}
-                >
-                  <td style={{ padding: '1rem', fontSize: '14px' }}>
-                    {new Date(entry.datum).toLocaleDateString('nl-NL')}
-                  </td>
-                  <td style={{ padding: '1rem', fontSize: '14px', textAlign: 'center' }}>
-                    {entry.startTijd}
-                  </td>
-                  <td style={{ padding: '1rem', fontSize: '14px', textAlign: 'center' }}>
-                    {entry.eindeTijd}
-                  </td>
-                  <td style={{ padding: '1rem', fontSize: '14px', textAlign: 'center', fontWeight: '600' }}>
-                    {calculateNettoHours(entry.startTijd, entry.eindeTijd, entry.pauzeMitten)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Mobile: card grid */}
+      {isMobile && (
+        <>
+          {loading ? (
+            <p style={{ textAlign: 'center', color: '#94a3b8' }}>Laden...</p>
+          ) : uren.length === 0 ? (
+            <p style={{ textAlign: 'center', color: '#94a3b8' }}>Nog geen uren ingevoerd</p>
+          ) : (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: 12
+            }}>
+              {uren.map((u) => {
+                const calc = berekenUren(u.start_tijd, u.einde_tijd, u.pauze_minuten)
+                return (
+                  <div
+                    key={u.id}
+                    style={{
+                      backgroundColor: 'white',
+                      borderRadius: 12,
+                      padding: 12,
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                      border: '1px solid #e2e8f0'
+                    }}
+                  >
+                    <div style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: '#1e3a5f',
+                      marginBottom: 8
+                    }}>
+                      {calc.text}
+                    </div>
+                    <div style={{
+                      fontSize: 12,
+                      color: '#94a3b8',
+                      marginBottom: 4
+                    }}>
+                      {new Date(u.datum).toLocaleDateString('nl-NL')}
+                    </div>
+                    <div style={{
+                      fontSize: 11,
+                      color: '#64748b'
+                    }}>
+                      {u.start_tijd} - {u.einde_tijd}
+                    </div>
+                    {u.pauze_minuten > 0 && (
+                      <div style={{
+                        fontSize: 11,
+                        color: '#64748b'
+                      }}>
+                        Pauze: {u.pauze_minuten}m
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

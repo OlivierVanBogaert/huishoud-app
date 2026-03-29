@@ -1,71 +1,18 @@
-const COLORS = {
-  primary: '#1e3a5f',
-  secondary: '#2d5f8a',
-  white: '#ffffff'
-}
-
-export default function ChipSelect({
-  label,
-  options,
-  value,
-  onChange,
-  multiple = false,
-  placeholder = 'Selecteer...'
-}) {
-  const selectedValues = Array.isArray(value) ? value : (value ? [value] : [])
-
-  const toggleOption = (optionValue) => {
-    if (multiple) {
-      const newValues = selectedValues.includes(optionValue)
-        ? selectedValues.filter(v => v !== optionValue)
-        : [...selectedValues, optionValue]
-      onChange(newValues)
-    } else {
-      onChange(selectedValues.includes(optionValue) ? null : optionValue)
-    }
-  }
-
+export default function ChipSelect({ opties, waarde, onChange, iconen, small }) {
   return (
-    <div style={{ marginBottom: '1rem' }}>
-      {label && (
-        <label style={{
-          display: 'block',
-          fontSize: '14px',
-          fontWeight: '600',
-          marginBottom: '0.5rem',
-          color: COLORS.primary
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {opties.map(o => (
+        <button key={o} onClick={() => onChange(o)} style={{
+          padding: small ? "6px 10px" : "8px 14px", borderRadius: 99,
+          border: waarde === o ? "2px solid #1e3a5f" : "2px solid #e2e8f0",
+          backgroundColor: waarde === o ? "#1e3a5f" : "white",
+          color: waarde === o ? "white" : "#475569",
+          cursor: "pointer", fontSize: small ? 12 : 13,
+          fontWeight: waarde === o ? 600 : 400, transition: "all 0.15s", whiteSpace: "nowrap", minHeight: 44
         }}>
-          {label}
-        </label>
-      )}
-      <div style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '0.5rem'
-      }}>
-        {options.map(option => {
-          const isSelected = selectedValues.includes(option.value)
-          return (
-            <button
-              key={option.value}
-              onClick={() => toggleOption(option.value)}
-              style={{
-                padding: '0.5rem 1rem',
-                borderRadius: '16px',
-                border: `2px solid ${COLORS.secondary}`,
-                backgroundColor: isSelected ? COLORS.secondary : COLORS.white,
-                color: isSelected ? COLORS.white : COLORS.secondary,
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: '500',
-                transition: 'all 0.2s'
-              }}
-            >
-              {option.label}
-            </button>
-          )
-        })}
-      </div>
+          {iconen && iconen[o] ? `${iconen[o]} ` : ""}{o}
+        </button>
+      ))}
     </div>
-  )
+  );
 }
